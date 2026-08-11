@@ -1,0 +1,55 @@
+# YORU女 自動投稿 — PCの電源に関係なくGitHubのクラウドで実行される
+name: autopost
+
+on:
+  schedule:
+    # UTC表記。JSTで 9時 / 15時 / 21時 の1日3回。
+    # 3時間ごと(JST 9,12,15,18,21,24時)にしたい場合は下の行に差し替え:
+    #   - cron: "0 0,3,6,9,12,15 * * *"
+    - cron: "0 0,6,12 * * *"
+  workflow_dispatch: # 手動実行ボタンも使える
+
+concurrency:
+  group: autopost
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 投稿済みマークをコミットで書き戻すため
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Post to YORU女
+        run: node post.mjs
+        env:
+          YORUJO_EMAIL: ${{ secrets.YORUJO_EMAIL }}
+          YORUJO_PASSWORD: ${{ secrets.YORUJO_PASSWORD }}
+
+      - name: Save queue state
+        if: always()
+        run: |
+          git config user.name "autopost-bot"
+          git config user.email "actions@github.com"
+          git add queue/posts.json
+          git diff --cached --quiet || git commit -m "投稿済みマークを更新"
+          git push
+
+      - name: Upload error screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: error.png
+          if-no-files-found: ignore

@@ -1,0 +1,11 @@
+{
+  "name": "yorujo-autopost",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "post": "node post.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

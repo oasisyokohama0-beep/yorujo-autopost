@@ -32,16 +32,41 @@ const context = await browser.newContext({
 const page = await context.newPage();
 
 try {
+  // 年齢確認ダイアログが出ていたら「はい」を押す
+  const dismissAgeGate = async () => {
+    const btn = page.getByRole("button", { name: /はい/ });
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click();
+      console.log("年齢確認ダイアログを閉じました");
+    }
+  };
+
   // ---- ログイン ----
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+  await dismissAgeGate();
   await page.getByPlaceholder("メールアドレス または ID").fill(email);
   await page.locator('input[type="password"]').fill(password);
   await page.locator('form button[type="submit"]').click();
-  await page.waitForURL("**/home", { timeout: 30000 });
+  await page.waitForLoadState("networkidle");
+  await dismissAgeGate();
+  console.log("ログイン後のURL:", page.url());
+  if (page.url().includes("/login")) {
+    const bodyText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    throw new Error(
+      "ログインに失敗しました。画面の表示: " + bodyText.slice(0, 300)
+    );
+  }
   console.log("ログイン成功");
 
   // ---- 新規投稿 ----
   await page.goto(`${BASE}/posts/new`, { waitUntil: "networkidle" });
+  await dismissAgeGate();
+  if (page.url().includes("/login")) {
+    throw new Error("投稿ページに入れませんでした（ログインが維持されていない）");
+  }
   await page.locator('textarea[name="caption"]').fill(next.text);
 
   // 画像付き投稿（queue に image: "images/xxx.jpg" がある場合）

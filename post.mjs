@@ -57,7 +57,7 @@ try {
   }
 
   // 投稿ボタン（ヘッダー右上）
-  await page.getByRole("button", { name: "投稿" }).click();
+  await page.getByRole("button", { name: "投稿", exact: true }).click();
   await page.waitForURL((u) => !u.pathname.includes("/posts/new"), {
     timeout: 30000,
   });

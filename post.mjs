@@ -47,7 +47,10 @@ try {
   await page.getByPlaceholder("メールアドレス または ID").fill(email);
   await page.locator('input[type="password"]').fill(password);
   await page.locator('form button[type="submit"]').click();
-  await page.waitForLoadState("networkidle");
+  // ログイン完了（=/loginから離れる）を最大45秒待つ
+  await page
+    .waitForURL((u) => !u.pathname.includes("/login"), { timeout: 45000 })
+    .catch(() => {});
   await dismissAgeGate();
   console.log("ログイン後のURL:", page.url());
   if (page.url().includes("/login")) {

@@ -82,13 +82,42 @@ try {
       { timeout: 60000 }
     );
     console.log("画像アップロード完了");
+    await page.waitForTimeout(3000); // 処理が落ち着くまで少し待つ
   }
+
+  // 投稿前の投稿数を記録（成功判定に使う）
+  const PUBLIC_ID = "minatoaoi";
+  const getPostCount = () =>
+    page.evaluate(async (pid) => {
+      const r = await fetch(`/api/client/users/${pid}/profile`);
+      const d = await r.json();
+      return d?.data?.post_count ?? -1;
+    }, PUBLIC_ID);
+  const before = await getPostCount();
+  console.log("現在の投稿数:", before);
 
   // 投稿ボタン（ヘッダー右上）
   await page.getByRole("button", { name: "投稿", exact: true }).click();
-  await page.waitForURL((u) => !u.pathname.includes("/posts/new"), {
-    timeout: 30000,
-  });
+
+  // 成功判定：投稿数が実際に増えるまで最大60秒ポーリング
+  let ok = false;
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(3000);
+    const now = await getPostCount().catch(() => -1);
+    if (now > before) {
+      ok = true;
+      break;
+    }
+  }
+  if (!ok) {
+    const bodyText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    throw new Error(
+      `投稿が反映されませんでした。URL: ${page.url()} 画面: ${bodyText.slice(0, 300)}`
+    );
+  }
   console.log("投稿完了");
 
   // ---- キューを更新 ----

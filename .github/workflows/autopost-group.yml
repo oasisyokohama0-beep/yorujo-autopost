@@ -1,0 +1,64 @@
+# YORU女 自動投稿（オアシスグループ公式アカウント）
+# happ-s.com から出勤・写メ日記・口コミを取得して動的に投稿文を生成する
+name: autopost-group
+
+on:
+  schedule:
+    # UTC表記。JSTで 10時(出勤) / 12時(写メ日記) / 17時(口コミ) / 20時(今から入れる) / 22時(写メ日記)
+    - cron: "0 1,3,8,11,13 * * *"
+  workflow_dispatch:
+    inputs:
+      post_type:
+        description: "投稿タイプ（空なら時刻から自動判定）"
+        required: false
+        type: choice
+        options: ["", "schedule", "diary", "review", "now"]
+
+concurrency:
+  group: autopost-group
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 投稿済み状態（state-group.json）をコミットで書き戻すため
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Post to YORU女 (group)
+        run: node post-group.mjs
+        env:
+          YORUJO_GROUP_EMAIL: ${{ secrets.YORUJO_GROUP_EMAIL }}
+          YORUJO_GROUP_PASSWORD: ${{ secrets.YORUJO_GROUP_PASSWORD }}
+          YORUJO_GROUP_ID: ${{ vars.YORUJO_GROUP_ID }}
+          POST_TYPE: ${{ inputs.post_type }}
+
+      - name: Save state
+        if: always()
+        run: |
+          git config user.name "autopost-bot"
+          git config user.email "actions@github.com"
+          git pull --rebase || true
+          git add state-group.json
+          git diff --cached --quiet || git commit -m "グループ投稿の状態を更新"
+          git push
+        continue-on-error: true
+
+      - name: Upload error screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot-group
+          path: error.png
+          if-no-files-found: ignore

@@ -233,7 +233,7 @@ if (POST_TYPE === "ranking") {
   const lines = top
     .map((t) => `${t.rank}位 ${t.name}（${t.store}）${t.point}pt`)
     .join("\n");
-  caption = `👑 ${dateLabel} オアシス全国ポイントランキング TOP10\n\n${lines}\n\nランキングの続きはこちら\n${SITE}/yokohama/all_ranking/`;
+  caption = `👑 ${dateLabel} オアシス全国ポイントランキング TOP10\n\n${lines}\n\nランキングの続きはこちら\n${SITE}/top/all_ranking/`;
   imagePath = await downloadImage(`${SITE}${top[0].img}`, "tmp-diary.jpg");
 }
 

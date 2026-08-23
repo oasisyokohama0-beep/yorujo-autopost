@@ -4,7 +4,7 @@ name: autopost-group
 
 on:
   schedule:
-    # UTC表記。JST 10〜24時の毎正時（1日15本）。12時・18時=口コミ、20時=ランキング、他=写メ日記
+    # UTC表記。JST 10〜24時の毎正時（1日15本）。10時=全店出勤、20時=ランキング、他=写メ日記
     - cron: "0 1-15 * * *"
   workflow_dispatch:
     inputs:
@@ -12,7 +12,7 @@ on:
         description: "投稿タイプ（空なら時刻から自動判定）"
         required: false
         type: choice
-        options: ["", "diary", "review", "ranking"]
+        options: ["", "schedule", "diary", "review", "ranking"]
 
 concurrency:
   group: autopost-group

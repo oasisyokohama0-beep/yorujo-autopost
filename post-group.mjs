@@ -46,10 +46,10 @@ const jstHour = jstNow.getUTCHours();
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const dateLabel = `${jstNow.getUTCMonth() + 1}/${jstNow.getUTCDate()}(${WEEKDAYS[jstNow.getUTCDay()]})`;
 
-// 投稿タイプ: diary(写メ日記) / review(口コミ) / ranking(全国ポイントランキング)
-// JST 10〜24時の毎正時に1本。12時・18時は口コミ、20時はランキング、それ以外は写メ日記
+// 投稿タイプ: schedule(全店出勤) / diary(写メ日記) / ranking(全国ポイントランキング)
+// JST 10〜24時の毎正時に1本。10時=全店出勤、20時=ランキング、それ以外は写メ日記
 function typeFromHour(h) {
-  if (h === 12 || h === 18) return "review";
+  if (h === 10) return "schedule";
   if (h === 20) return "ranking";
   return "diary";
 }
@@ -88,6 +88,50 @@ const strip = (s) =>
 // /s/yokohama/... → /yokohama/...（本店アカウントが使っている短い形に揃える）
 const shortPath = (p) => p.replace(/^\/s\//, "/");
 
+// 全店舗の本日の出勤（各店の schedule ページを巡回、therapist id で重複排除）
+async function fetchAllSchedules() {
+  const seen = new Set();
+  const list = [];
+  let fetched = 0;
+  for (const [slug, storeName] of Object.entries(STORES)) {
+    let html;
+    try {
+      html = await fetchHtml(`${SITE}/${slug}/schedule/`);
+      fetched++;
+      await sleep(1000);
+    } catch {
+      continue;
+    }
+    // ページにより2種類のマークアップがある（listpage_style / top_sch_li）
+    const blocks = [
+      ...(html.match(/<li class="listpage_style">[\s\S]*?<\/li>/g) || []),
+      ...(html.match(/<li class="top_sch_li">[\s\S]*?<\/li>/g) || []),
+    ];
+    for (const b of blocks) {
+      const tid = b.match(/therapist\/(\d+)\//)?.[1];
+      const name = b.match(/alt="([^"]+)"/)?.[1];
+      const store = b.match(/【(.+?)】/)?.[1] || storeName;
+      const time = b.match(/(?:listpage_prof_schdule|list_prof_schdule)">\s*([\d:]+)～([\d:]+)/);
+      if (!tid || !name || !time) continue;
+      if (time[1] === time[2]) continue; // 開始＝終了は出勤時間未設定とみなす
+      if (seen.has(tid)) continue;
+      seen.add(tid);
+      list.push({ tid, name, store, start: time[1], end: time[2] });
+    }
+  }
+  if (fetched === 0) throw new Error("全店舗の出勤取得に失敗しました（レート制限の可能性）");
+  return list;
+}
+const toMin = (t) => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+// 深夜跨ぎを考慮したソートキー（早朝開始は翌日扱い）
+const sortKey = (t) => {
+  const m = toMin(t);
+  return m < 360 ? m + 1440 : m;
+};
+
 // 写メ日記一覧（このフィードは全店舗横断）
 async function fetchDiaries() {
   const html = await fetchHtml(`${SITE}/s/yokohama/diary/`);
@@ -108,7 +152,8 @@ async function fetchDiaries() {
         if (jstNow - posted > 2 * 86400 * 1000) return null;
       }
       const title = alt.startsWith(name) ? alt.slice(name.length).trim() : alt;
-      return { id: href[2], url: `${SITE}${shortPath(href[1])}`, name, tHref, store, title };
+      const tid = tHref?.match(/therapist\/(\d+)\//)?.[1];
+      return { id: href[2], url: `${SITE}${shortPath(href[1])}`, name, tHref, tid, store, title };
     })
     .filter(Boolean);
 }
@@ -189,6 +234,43 @@ const downloadImage = async (url, file) => {
   }
 };
 
+if (POST_TYPE === "schedule") {
+  const list = await fetchAllSchedules();
+  if (!list.length) {
+    console.log("出勤情報が取得できなかったため投稿をスキップします。");
+    process.exit(0);
+  }
+  // 店舗の表示順（タグ表記ゆれも吸収）
+  const ORDER = ["東京本店", "渋谷", "新宿", "歌舞伎町", "池袋", "アキバ", "新大久保", "錦糸町", "六本木", "横浜", "大宮", "大阪", "名古屋", "福岡", "Global", "グローバル", "上野"];
+  const norm = (s) => (s.endsWith("本店") ? s : s.replace(/店$/, ""));
+  const groups = new Map();
+  for (const t of list) {
+    const key = norm(t.store);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const keys = [...groups.keys()].sort((a, b) => {
+    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  const header = `🌙 ${dateLabel} オアシス全店舗 本日の出勤セラピスト`;
+  const footer = `全店の出勤・写真はこちら\n${SITE}/top/schedule/`;
+  const build = (compact) =>
+    keys
+      .map((k) => {
+        const members = groups.get(k).sort((a, b) => sortKey(a.start) - sortKey(b.start));
+        const body = compact
+          ? members.map((t) => t.name).join("・")
+          : members.map((t) => `${t.name} ${t.start}～${t.end}`).join("\n");
+        return `【${k}】\n${body}`;
+      })
+      .join("\n\n");
+  let bodyText = build(false);
+  if ((header + bodyText + footer).length > 1800) bodyText = build(true); // 長すぎる場合は名前だけの簡易表記
+  caption = `${header}\n\n${bodyText}\n\n${footer}`;
+  if (caption.length > 1950) caption = caption.slice(0, 1900) + "…\n\n" + footer;
+}
+
 if (POST_TYPE === "diary") {
   const diaries = await fetchDiaries();
   const next = diaries.find((d) => !state.diary_posted.includes(d.id));
@@ -201,6 +283,10 @@ if (POST_TYPE === "diary") {
   const storeLabel = next.store ? `【${next.store}】` : "";
   caption = `📸 ${storeLabel}${next.name}${ageLabel} の写メ日記が更新されました\n\n「${next.title}」\n\n${next.url}`;
   imagePath = await downloadImage(`${SITE}/photo/syame_${next.id}_01.jpg`, "tmp-diary.jpg");
+  // 日記に写真がない場合は本人のプロフィール写真を添付する
+  if (!imagePath && next.tid) {
+    imagePath = await downloadImage(`${SITE}/photo/wid_${next.tid}_01.jpg`, "tmp-diary.jpg");
+  }
   state.diary_posted.push(next.id);
   state.diary_posted = state.diary_posted.slice(-300);
 }

@@ -47,12 +47,10 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const dateLabel = `${jstNow.getUTCMonth() + 1}/${jstNow.getUTCDate()}(${WEEKDAYS[jstNow.getUTCDay()]})`;
 
 // 投稿タイプ: diary(写メ日記) / review(口コミ) / ranking(全国ポイントランキング)
-// JST 10時 diary / 12時 review / 15時 diary / 20時 ranking / 22時 diary
+// JST 10〜24時の毎正時に1本。12時・18時は口コミ、20時はランキング、それ以外は写メ日記
 function typeFromHour(h) {
-  if (h < 11) return "diary";
-  if (h < 14) return "review";
-  if (h < 18) return "diary";
-  if (h < 21) return "ranking";
+  if (h === 12 || h === 18) return "review";
+  if (h === 20) return "ranking";
   return "diary";
 }
 const POST_TYPE = process.env.POST_TYPE || typeFromHour(jstHour);

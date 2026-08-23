@@ -4,8 +4,8 @@ name: autopost-group
 
 on:
   schedule:
-    # UTC表記。JSTで 10時(写メ日記) / 12時(口コミ) / 15時(写メ日記) / 20時(ランキング) / 22時(写メ日記)
-    - cron: "0 1,3,6,11,13 * * *"
+    # UTC表記。JST 10〜24時の毎正時（1日15本）。12時・18時=口コミ、20時=ランキング、他=写メ日記
+    - cron: "0 1-15 * * *"
   workflow_dispatch:
     inputs:
       post_type:

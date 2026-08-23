@@ -46,14 +46,15 @@ const jstHour = jstNow.getUTCHours();
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const dateLabel = `${jstNow.getUTCMonth() + 1}/${jstNow.getUTCDate()}(${WEEKDAYS[jstNow.getUTCDay()]})`;
 
-// 投稿タイプ: schedule(全店出勤) / diary(写メ日記) / ranking(全国ポイントランキング)
-// JST 10〜24時の毎正時に1本。10時=全店出勤、20時=ランキング、それ以外は写メ日記
-function typeFromHour(h) {
+// 投稿タイプ: schedule(全店出勤) / diary(写メ日記) / ranking(全国ポイントランキング) / fc(FC店舗一覧)
+// JST 10〜24時の毎正時に1本。10時=全店出勤、20時=ランキング、奇数日13時=FC店舗一覧、それ以外は写メ日記
+function typeFromHour(h, day) {
   if (h === 10) return "schedule";
   if (h === 20) return "ranking";
+  if (h === 13 && day % 2 === 1) return "fc"; // 2日に1回
   return "diary";
 }
-const POST_TYPE = process.env.POST_TYPE || typeFromHour(jstHour);
+const POST_TYPE = process.env.POST_TYPE || typeFromHour(jstHour, jstNow.getUTCDate());
 console.log(`投稿タイプ: ${POST_TYPE}（JST ${jstHour}時台）`);
 
 // ---- 状態（写メ日記・口コミの投稿済みID） ----
@@ -234,6 +235,18 @@ const downloadImage = async (url, file) => {
   }
 };
 
+if (POST_TYPE === "fc") {
+  caption = `🏬 オアシスFC店舗一覧\n\n全国のオアシスFC店舗はこちらからご覧いただけます\n${SITE}/tokyo/free/fc_list3/`;
+  for (const ext of ["jpg", "png"]) {
+    const p = path.join(DIR, "images", `fc_banner.${ext}`);
+    if (fs.existsSync(p)) {
+      imagePath = p;
+      break;
+    }
+  }
+  if (!imagePath) console.log("images/fc_banner.jpg が見つからないため画像なしで投稿します。");
+}
+
 if (POST_TYPE === "schedule") {
   const list = await fetchAllSchedules();
   if (!list.length) {
@@ -331,8 +344,13 @@ console.log(caption);
 console.log("----------------");
 
 // 生成のみモード（ローカル確認用）
+// 一時ダウンロード画像だけ削除する（リポジトリ内の固定画像は消さない）
+const cleanupImage = () => {
+  if (imagePath && path.basename(imagePath).startsWith("tmp-")) fs.unlinkSync(imagePath);
+};
+
 if (process.env.DRY_RUN) {
-  if (imagePath) fs.unlinkSync(imagePath);
+  cleanupImage();
   console.log("DRY_RUN のため投稿せず終了します。");
   process.exit(0);
 }
@@ -421,6 +439,6 @@ try {
   await page.screenshot({ path: "error.png" }).catch(() => {});
   process.exit(1);
 } finally {
-  if (imagePath) fs.unlinkSync(imagePath);
+  cleanupImage();
   await browser.close();
 }

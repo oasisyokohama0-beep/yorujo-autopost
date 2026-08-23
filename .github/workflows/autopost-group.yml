@@ -12,7 +12,7 @@ on:
         description: "投稿タイプ（空なら時刻から自動判定）"
         required: false
         type: choice
-        options: ["", "schedule", "diary", "review", "ranking"]
+        options: ["", "schedule", "diary", "review", "ranking", "fc"]
 
 concurrency:
   group: autopost-group

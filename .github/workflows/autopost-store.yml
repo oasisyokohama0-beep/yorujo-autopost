@@ -42,6 +42,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: 横浜店
+        id: yokohama
         if: ${{ inputs.store == '' || inputs.store == 'yokohama' }}
         continue-on-error: true
         run: node post-store.mjs
@@ -53,6 +54,7 @@ jobs:
           POST_TYPE: ${{ inputs.post_type }}
 
       - name: 渋谷店
+        id: shibuya
         if: ${{ inputs.store == '' || inputs.store == 'shibuya' }}
         continue-on-error: true
         run: node post-store.mjs
@@ -64,6 +66,7 @@ jobs:
           POST_TYPE: ${{ inputs.post_type }}
 
       - name: 錦糸町店
+        id: kinshicho
         if: ${{ inputs.store == '' || inputs.store == 'kinshicho' }}
         continue-on-error: true
         run: node post-store.mjs
@@ -94,6 +97,19 @@ jobs:
           done
           echo "状態の書き戻しに失敗しました"
         continue-on-error: true
+
+      - name: 失敗した店舗を知らせる
+        if: always()
+        run: |
+          fails=""
+          if [ "${{ steps.yokohama.outcome }}" = "failure" ]; then fails="$fails 横浜店"; fi
+          if [ "${{ steps.shibuya.outcome }}" = "failure" ]; then fails="$fails 渋谷店"; fi
+          if [ "${{ steps.kinshicho.outcome }}" = "failure" ]; then fails="$fails 錦糸町店"; fi
+          if [ -n "$fails" ]; then
+            echo "投稿に失敗した店舗:$fails"
+            exit 1
+          fi
+          echo "失敗した店舗はありません"
 
       - name: Upload error screenshot
         if: always()

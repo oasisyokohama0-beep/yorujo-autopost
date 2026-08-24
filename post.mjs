@@ -18,7 +18,7 @@ const DIR = path.dirname(STATE_PATH);
 
 const PUBLIC_ID = "minatoaoi";
 const SELF_TID = "35"; // 湊あおい本人。紹介ローテから除外する
-const COOLDOWN_DAYS = 3; // 同じセラピストを再紹介するまでの間隔
+const COOLDOWN_DAYS = 1; // 同じセラピストを再紹介するまでの間隔（毎時19本を実ネタで埋めるため短め）
 const STORE_TAGS = ["横浜", "渋谷", "錦糸町"]; // 湊あおいが見る3店舗
 const DIARY_MAX_DAYS = 7; // 何日前までの写メ日記を紹介するか
 
@@ -33,14 +33,13 @@ if (!email || !password) {
 const jstNow = new Date(Date.now() + 9 * 3600 * 1000);
 const jstHour = jstNow.getUTCHours();
 
-// 投稿タイプ: therapist(紹介) / review(口コミ)
-// JST 6,10,14,18,22時 → 紹介優先 / 8,12,16,20,24時 → 口コミ優先。
-// 優先タイプにネタが無ければもう片方、それも無ければスキップ。
-const therapistFirst = jstHour % 4 === 2;
+// 投稿タイプ: therapist(紹介) / review(口コミ) / diary(写メ日記)
+// JST 6〜24時の毎時起動なので、3種類を1時間ごとに回す。
+// 優先タイプにネタが無ければ残りのタイプへ、それも無ければスキップ。
+const ROTATION = ["therapist", "review", "diary"];
+const preferred = ROTATION[jstHour % ROTATION.length];
 const FORCED = process.env.POST_TYPE || "";
-console.log(
-  `JST ${jstHour}時台 / 優先タイプ: ${FORCED || (therapistFirst ? "therapist" : "review")}`
-);
+console.log(`JST ${jstHour}時台 / 優先タイプ: ${FORCED || preferred}`);
 
 // ---- 状態 ----
 const state = fs.existsSync(STATE_PATH)
@@ -297,9 +296,7 @@ const PICKERS = {
 };
 const order = FORCED
   ? [FORCED]
-  : therapistFirst
-    ? ["therapist", "review", "diary"]
-    : ["review", "therapist", "diary"];
+  : [preferred, ...ROTATION.filter((t) => t !== preferred)];
 for (const type of order) {
   const ok = await PICKERS[type]();
   if (ok) {

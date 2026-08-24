@@ -3,8 +3,8 @@ name: autopost
 
 on:
   schedule:
-    # UTC表記。JSTで 6時〜24時の2時間おき（1日10本）。
-    - cron: "0 1,3,5,7,9,11,13,15,21,23 * * *"
+    # UTC表記。JST 6〜24時の毎正時（1日19本）。
+    - cron: "0 0-15,21-23 * * *"
   workflow_dispatch: # 手動実行ボタンも使える
     inputs:
       post_type:

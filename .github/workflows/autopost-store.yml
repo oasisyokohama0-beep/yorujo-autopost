@@ -4,8 +4,8 @@ name: autopost-store
 
 on:
   schedule:
-    # UTC表記。JSTで 11時(写メ日記) / 13時(口コミ) / 19時(在籍紹介) / 21時(月間ランキング・5日に1回)
-    - cron: "0 2,4,10,12 * * *"
+    # UTC表記。JST 6〜24時の毎正時（1日19本）。日記→口コミ→在籍紹介を1時間ごとに回し、21時はランキング（5日に1回）
+    - cron: "0 0-15,21-23 * * *"
   workflow_dispatch:
     inputs:
       store:

@@ -44,13 +44,17 @@ const jstNow = new Date(Date.now() + 9 * 3600 * 1000);
 const jstHour = jstNow.getUTCHours();
 const todayStr = jstNow.toISOString().slice(0, 10);
 const monthLabel = `${jstNow.getUTCMonth() + 1}月`;
+// 同じネタが再登場したときに前回と同じ文面にならないよう、日付と時刻でも文面を回す
+const dayIndex = Math.floor(Date.parse(todayStr) / 86400000);
+const pickTemplate = (templates, id) =>
+  templates[(Number(id) + dayIndex + jstHour) % templates.length];
 
-// 投稿タイプ: JST 11時 日記 / 13時 口コミ / 19時 在籍紹介 / 21時 ランキング（5日に1回）
+// 投稿タイプ: JST 6〜24時の毎時起動なので、日記→口コミ→在籍紹介を1時間ごとに回す。
+// 21時だけはランキング（5日に1回）。ネタが無いタイプは後段で自動的に別のネタへ切り替わる。
+const ROTATION = ["diary", "review", "therapist"];
 function typeFromHour(h) {
-  if (h < 12) return "diary";
-  if (h < 16) return "review";
-  if (h < 20) return "therapist";
-  return "ranking";
+  if (h === 21) return "ranking";
+  return ROTATION[h % ROTATION.length];
 }
 
 // ---- 状態（投稿済みID・前回ランキング投稿日） ----
@@ -299,13 +303,17 @@ async function buildTherapist() {
     .join(" / ");
   const copy = next.copy ? `\n「${next.copy}」` : "";
   const reviews = Number(next.reviews) > 0 ? `\n口コミ ${next.reviews}件` : "";
+  const url = `${SITE}/${SLUG}/therapist/${next.id}/`;
   state.therapist_posted.push(next.id);
   state.therapist_posted = state.therapist_posted.slice(-100);
+  // 毎時投稿では在籍が一巡して同じメンバーが再登場するので、文面を変えて同じ投稿にならないようにする
+  const templates = [
+    `✨【${STORE.name}】在籍セラピストのご紹介\n\n${next.name}（${spec}）${copy}${reviews}\n\nプロフィール・ご予約はこちら\n${url}`,
+    `✨【${STORE.name}】本日のご紹介｜${next.name}\n\n${spec}${copy}${reviews}\n\nプロフィールはこちら\n${url}`,
+    `✨【${STORE.name}】${next.name}（${spec}）${copy}${reviews}\n\nご予約・詳細はこちら\n${url}`,
+  ];
   return {
-    caption:
-      `✨【${STORE.name}】在籍セラピストのご紹介\n\n` +
-      `${next.name}（${spec}）${copy}${reviews}\n\n` +
-      `プロフィール・ご予約はこちら\n${SITE}/${SLUG}/therapist/${next.id}/`,
+    caption: pickTemplate(templates, next.id),
     image: await downloadImage(`${SITE}/photo/wid_${next.id}_01.jpg`, "tmp-media.jpg"),
   };
 }

@@ -18,7 +18,7 @@ const DIR = path.dirname(STATE_PATH);
 
 const PUBLIC_ID = "minatoaoi";
 const SELF_TID = "35"; // 湊あおい本人。紹介ローテから除外する
-const COOLDOWN_DAYS = 7; // 同じセラピストを再紹介するまでの間隔
+const COOLDOWN_DAYS = 3; // 同じセラピストを再紹介するまでの間隔
 const STORE_TAGS = ["横浜", "渋谷", "錦糸町"]; // 湊あおいが見る3店舗
 const DIARY_MAX_DAYS = 7; // 何日前までの写メ日記を紹介するか
 
@@ -183,6 +183,10 @@ async function fetchDiaries() {
 
 // ---- 投稿文テンプレート（湊あおい＝代表の声。乱暴な呼び方・ハッシュタグは使わない） ----
 const tUrl = (id) => `${SITE}/s/yokohama/therapist/${id}/`;
+// 同じセラピストが再登場したときに前回と同じ文面にならないよう、日付でも文面を回す
+const dayIndex = Math.floor(Date.parse(jstNow.toISOString().slice(0, 10)) / 86400000);
+const pickTemplate = (templates, id) =>
+  templates[(Number(id) + dayIndex) % templates.length];
 
 function therapistCaption(t) {
   const rankLine = t.rank ? `${t.rank}ランク。` : "";
@@ -195,8 +199,10 @@ function therapistCaption(t) {
     `うちの自慢のメンバー紹介。\n\n${t.name}（${t.store}）です。\n${t.age}歳・${t.height}cm。${catchLine}\n気になった方はプロフィールをどうぞ✨\n${tUrl(t.id)}`,
     `本日のピックアップは${t.store}店の${t.name}。\n\n${t.age}歳・${t.height}cm。${rankLine}${catchLine}\n${reviewLine}\n${tUrl(t.id)}`,
     `${t.name}、${t.store}店にいます。\n\n${t.age}歳・${t.height}cm。${catchLine}\n代表として自信を持っておすすめできるメンバーです☺️\n${tUrl(t.id)}`,
+    `${t.store}店の${t.name}を改めて。\n\n${t.age}歳・${t.height}cm。${rankLine}${catchLine}\n${reviewLine}\n迷っている方は、まずプロフィールを見てみてください。\n${tUrl(t.id)}`,
+    `今日は${t.name}（${t.store}店）を推させてください。\n\n${t.age}歳・${t.height}cm。${rankLine}${catchLine}\n${reviewLine}\n${tUrl(t.id)}`,
   ];
-  return templates[Number(t.id) % templates.length];
+  return pickTemplate(templates, t.id);
 }
 
 function reviewCaption(r) {
@@ -207,7 +213,7 @@ function reviewCaption(r) {
     `お客様の声を紹介します。\n\n${r.tname}へ\n「${excerpt}」\n\n嬉しい口コミは、セラピスト本人にも必ず共有しています☺️\n\n${tUrl(r.tid)}`,
     `口コミをチェックしていたら、${r.tname}に嬉しい声が。\n\n「${excerpt}」\n\n代表として鼻が高いです。\n${r.reviewer}様、ありがとうございました🌿\n\n${tUrl(r.tid)}`,
   ];
-  return templates[Number(r.id) % templates.length];
+  return pickTemplate(templates, r.id);
 }
 
 function diaryCaption(d) {
@@ -216,7 +222,7 @@ function diaryCaption(d) {
     `写メ日記の紹介です。\n\n${d.name}（${d.store}店）\n「${d.title}」\n\n${d.url}`,
     `${d.name}の写メ日記、よかったら読んでみてください。\n\n「${d.title}」\n\n${d.store}店にいるメンバーです☺️\n${d.url}`,
   ];
-  return templates[Number(d.id) % templates.length];
+  return pickTemplate(templates, d.id);
 }
 
 // ---- ネタ選定 ----

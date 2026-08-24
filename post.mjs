@@ -18,7 +18,9 @@ const DIR = path.dirname(STATE_PATH);
 
 const PUBLIC_ID = "minatoaoi";
 const SELF_TID = "35"; // 湊あおい本人。紹介ローテから除外する
-const COOLDOWN_DAYS = 10; // 同じセラピストを再紹介するまでの間隔
+const COOLDOWN_DAYS = 7; // 同じセラピストを再紹介するまでの間隔
+const STORE_TAGS = ["横浜", "渋谷", "錦糸町"]; // 湊あおいが見る3店舗
+const DIARY_MAX_DAYS = 7; // 何日前までの写メ日記を紹介するか
 
 const email = process.env.YORUJO_EMAIL;
 const password = process.env.YORUJO_PASSWORD;
@@ -46,9 +48,24 @@ const state = fs.existsSync(STATE_PATH)
   : { review_posted: [], therapist_posted: {} };
 state.review_posted ||= [];
 state.therapist_posted ||= {};
+state.diary_posted ||= [];
 const groupState = fs.existsSync(GROUP_STATE_PATH)
   ? JSON.parse(fs.readFileSync(GROUP_STATE_PATH, "utf8"))
   : { review_posted: [] };
+
+// グループ公式・各店舗アカウントが既に紹介した写メ日記は避ける（同じ日記が並ばないように）
+const otherDiaryIds = new Set(
+  ["state-group.json", "state-yokohama.json", "state-shibuya.json", "state-kinshicho.json"]
+    .flatMap((f) => {
+      const p = path.join(DIR, f);
+      if (!fs.existsSync(p)) return [];
+      try {
+        return JSON.parse(fs.readFileSync(p, "utf8")).diary_posted || [];
+      } catch {
+        return [];
+      }
+    })
+);
 const saveState = () =>
   fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2) + "\n");
 
@@ -119,6 +136,51 @@ async function fetchReviews() {
   return items.sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
+// 写メ日記（日記フィードは全店舗横断なので、店舗の絞り込みIDを付けて3店舗ぶん集める）
+const DIARY_SHOP_IDS = { 横浜: 15, 渋谷: 16, 錦糸町: 19 };
+
+async function fetchDiaries() {
+  const blocks = [];
+  for (const shopId of Object.values(DIARY_SHOP_IDS)) {
+    try {
+      const html = await fetchHtml(
+        `${SITE}/s/yokohama/diary/?select_shop_id=${shopId}`
+      );
+      blocks.push(...(html.match(/<li[^>]*class="post">[\s\S]*?<\/li>/g) || []));
+    } catch (e) {
+      console.log(`日記の取得に失敗（shop_id=${shopId}）: ${e.message}`);
+    }
+    await sleep(1000); // 連続アクセスでレート制限を踏まないように間隔を空ける
+  }
+  return blocks
+    .map((b) => {
+      const href = b.match(/href="([^"]*diary\/view\/(\d+)\/)"/);
+      const rawName = b.match(/class="notranslate">\s*([^<]+?)\s*</)?.[1];
+      const store = b.match(/【(.+?)】/)?.[1] || "";
+      if (!href || !rawName || !STORE_TAGS.includes(store)) return null;
+      const alt = b.match(/alt="([^"]*)"/)?.[1] || "";
+      const title = (alt.startsWith(rawName) ? alt.slice(rawName.length) : alt).trim();
+      const up = b.match(/(\d{2})\/(\d{2}) \d{2}:\d{2}\s*UP/);
+      let daysAgo = 0;
+      if (up) {
+        const posted = new Date(
+          Date.UTC(jstNow.getUTCFullYear(), Number(up[1]) - 1, Number(up[2]))
+        );
+        if (posted > jstNow) posted.setUTCFullYear(posted.getUTCFullYear() - 1); // 年跨ぎ
+        daysAgo = Math.floor((jstNow - posted) / 86400000);
+      }
+      return {
+        id: href[2],
+        url: `${SITE}${href[1].replace(/^\/s\//, "/")}`,
+        name: rawName.replace(/[(（].*$/, "").trim(),
+        store,
+        title,
+        daysAgo,
+      };
+    })
+    .filter((d) => d && d.title && d.daysAgo <= DIARY_MAX_DAYS);
+}
+
 // ---- 投稿文テンプレート（湊あおい＝代表の声。乱暴な呼び方・ハッシュタグは使わない） ----
 const tUrl = (id) => `${SITE}/s/yokohama/therapist/${id}/`;
 
@@ -148,9 +210,19 @@ function reviewCaption(r) {
   return templates[Number(r.id) % templates.length];
 }
 
+function diaryCaption(d) {
+  const templates = [
+    `${d.store}店の${d.name}が写メ日記を更新しています。\n\n「${d.title}」\n\n普段の空気感が出ていて、俺も毎回楽しみに読んでいます🌿\n${d.url}`,
+    `写メ日記の紹介です。\n\n${d.name}（${d.store}店）\n「${d.title}」\n\n${d.url}`,
+    `${d.name}の写メ日記、よかったら読んでみてください。\n\n「${d.title}」\n\n${d.store}店にいるメンバーです☺️\n${d.url}`,
+  ];
+  return templates[Number(d.id) % templates.length];
+}
+
 // ---- ネタ選定 ----
 let caption = null;
 let imageTid = null; // 添付する宣材写真のセラピストID
+let imageUrl = null; // 宣材写真以外の画像を使うとき（写メ日記など）
 let onPosted = () => {};
 
 async function pickTherapist() {
@@ -195,13 +267,35 @@ async function pickReview() {
   return true;
 }
 
+async function pickDiary() {
+  const diaries = await fetchDiaries();
+  console.log(`写メ日記取得: ${diaries.length}件`);
+  const next = diaries.find(
+    (d) => !state.diary_posted.includes(d.id) && !otherDiaryIds.has(d.id)
+  );
+  if (!next) return false;
+  caption = diaryCaption(next);
+  imageUrl = `${SITE}/photo/syame_${next.id}_01.jpg`;
+  onPosted = () => {
+    state.diary_posted.push(next.id);
+    state.diary_posted = state.diary_posted.slice(-300);
+  };
+  return true;
+}
+
+// 紹介・口コミが尽きても写メ日記で埋められるようにしておく（無言でスキップさせない）
+const PICKERS = {
+  therapist: pickTherapist,
+  review: pickReview,
+  diary: pickDiary,
+};
 const order = FORCED
   ? [FORCED]
   : therapistFirst
-    ? ["therapist", "review"]
-    : ["review", "therapist"];
+    ? ["therapist", "review", "diary"]
+    : ["review", "therapist", "diary"];
 for (const type of order) {
-  const ok = type === "therapist" ? await pickTherapist() : await pickReview();
+  const ok = await PICKERS[type]();
   if (ok) {
     console.log(`投稿タイプ確定: ${type}`);
     break;
@@ -218,11 +312,12 @@ console.log("---- 投稿文 ----");
 console.log(caption);
 console.log("----------------");
 
-// 宣材写真をダウンロード（404なら画像なしで投稿）
+// 写真をダウンロード（404なら画像なしで投稿）
 let imagePath = null;
-if (imageTid) {
+const photoUrl = imageUrl || (imageTid ? `${SITE}/photo/wid_${imageTid}_01.jpg` : null);
+if (photoUrl) {
   try {
-    const r = await fetch(`${SITE}/photo/wid_${imageTid}_01.jpg`, {
+    const r = await fetch(photoUrl, {
       headers: { "user-agent": UA },
     });
     if (r.ok) {

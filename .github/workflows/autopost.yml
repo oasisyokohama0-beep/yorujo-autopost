@@ -4,7 +4,8 @@ name: autopost
 on:
   schedule:
     # UTC表記。JST 6〜24時の毎正時（1日19本）。
-    - cron: "0 0-15,21-23 * * *"
+    # 毎時20分（グループ=0分・店舗=40分と同時刻起動を避けて衝突防止）
+    - cron: "20 0-15,21-23 * * *"
   workflow_dispatch: # 手動実行ボタンも使える
     inputs:
       post_type:
@@ -47,10 +48,11 @@ jobs:
         run: |
           git config user.name "autopost-bot"
           git config user.email "actions@github.com"
-          git pull --rebase || true
           git add state-aoi.json
-          git diff --cached --quiet || git commit -m "湊あおい投稿の状態を更新"
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m "湊あおい投稿の状態を更新"
+            for i in 1 2 3; do git push && break; git pull --rebase; sleep 3; done
+          fi
         continue-on-error: true
 
       - name: Upload error screenshot
